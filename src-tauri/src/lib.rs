@@ -912,6 +912,9 @@ pub fn run() {
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
 
+            // 初始化局域网广播管理器
+            app.manage(commands::BroadcastManager::new());
+
             // 从数据库加载日志配置并应用
             {
                 let db = &app.state::<AppState>().db;
@@ -1459,6 +1462,10 @@ pub fn run() {
             commands::enter_lightweight_mode,
             commands::exit_lightweight_mode,
             commands::is_lightweight_mode,
+            // LAN broadcast
+            commands::start_lan_broadcast,
+            commands::stop_lan_broadcast,
+            commands::get_lan_broadcast_status,
         ]);
 
     let app = builder
