@@ -18,7 +18,14 @@ use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+
+/// 广播状态
+pub struct BroadcastState {
+    pub running: bool,
+    pub local_ip: String,
+}
 
 /// 局域网广播端口（UDP 发现用）
 const BROADCAST_PORT: u16 = 3445;
@@ -85,7 +92,15 @@ impl LanBroadcast {
     pub async fn start(
         db: Arc<Database>,
         stop_flag: Arc<AtomicBool>,
+        broadcast_state: Arc<Mutex<BroadcastState>>,
     ) -> Result<(), String> {
+        // 检测本机 IP 并保存
+        let local_ip = detect_local_ip();
+        {
+            let mut state = broadcast_state.lock().await;
+            state.local_ip = local_ip.clone();
+        }
+
         let http_handle = Self::start_http(db.clone(), stop_flag.clone());
         let udp_handle = Self::start_udp(stop_flag.clone());
 
@@ -150,6 +165,7 @@ impl LanBroadcast {
                 .map_err(|e| format!("Failed to set broadcast: {}", e))?;
 
             let hostname = hostname();
+            let local_ip = detect_local_ip();
             let announce = serde_json::to_string(&BroadcastAnnounce {
                 v: 1,
                 name: hostname,
@@ -162,11 +178,19 @@ impl LanBroadcast {
                 BROADCAST_PORT
             );
 
-            let broadcast_addr = format!("255.255.255.255:{}", BROADCAST_PORT);
+            // 同时向 255.255.255.255 和子网广播地址发送
+            let mut addrs = vec![format!("255.255.255.255:{}", BROADCAST_PORT)];
+            if let Some(subnet_bcast) = subnet_broadcast(&local_ip) {
+                addrs.push(format!("{}:{}", subnet_bcast, BROADCAST_PORT));
+            }
+
+            log::info!("LAN broadcast targets: {:?}", addrs);
 
             while !stop_flag.load(Ordering::Relaxed) {
-                if let Err(e) = socket.send_to(announce.as_bytes(), &broadcast_addr) {
-                    log::warn!("UDP broadcast send error: {}", e);
+                for addr in &addrs {
+                    if let Err(e) = socket.send_to(announce.as_bytes(), addr) {
+                        log::warn!("UDP broadcast send error to {}: {}", addr, e);
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(3)).await;
             }
@@ -283,6 +307,69 @@ fn hostname() -> String {
             .or_else(|_| std::env::var("COMPUTERNAME"))
             .unwrap_or_else(|_| "CC-Switch".to_string())
     }
+}
+
+/// 检测本机主局域网 IP 地址
+pub fn detect_local_ip() -> String {
+    // 用 UDP 连接一个不可达地址来获取本机 IP（不会实际发包）
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("10.255.255.255:1").is_ok() {
+            if let Ok(local) = socket.local_addr() {
+                let ip = local.ip();
+                if !ip.is_loopback() {
+                    return ip.to_string();
+                }
+            }
+        }
+    }
+    // fallback: 枚举系统网络接口
+    if let Ok(ifaces) = std::fs::read_dir("/sys/class/net") {
+        // Linux: 读取 /sys/class/net/*/address
+        // macOS/其他: fallback 到 hostname 解析
+    }
+    // macOS fallback: 用 ifconfig 解析
+    if let Ok(out) = std::process::Command::new("ifconfig")
+        .args(["-l"])
+        .output()
+    {
+        let ifaces_str = String::from_utf8_lossy(&out.stdout);
+        for iface in ifaces_str.split_whitespace() {
+            if iface == "lo0" || iface == "lo" { continue; }
+            if let Ok(addr_out) = std::process::Command::new("ifconfig")
+                .args([iface])
+                .output()
+            {
+                let info = String::from_utf8_lossy(&addr_out.stdout);
+                // 找 inet 行，排除 127.x
+                for line in info.lines() {
+                    let line = line.trim();
+                    if let Some(rest) = line.strip_prefix("inet ") {
+                        if let Some(ip_str) = rest.split_whitespace().next() {
+                            if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
+                                if !ip.is_loopback() && !ip.is_link_local() {
+                                    return ip.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 最终 fallback
+    "127.0.0.1".to_string()
+}
+
+/// 根据 IP 计算子网广播地址（假设 /24 子网）
+fn subnet_broadcast(ip: &str) -> Option<String> {
+    if let Ok(v4) = ip.parse::<std::net::Ipv4Addr>() {
+        let octets = v4.octets();
+        if octets[0] != 127 && octets[0] != 169 {
+            let bcast = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], 255);
+            return Some(bcast.to_string());
+        }
+    }
+    None
 }
 
 /// Axum 应用状态

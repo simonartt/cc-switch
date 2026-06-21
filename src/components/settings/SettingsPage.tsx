@@ -226,7 +226,7 @@ export function SettingsPage({
           onValueChange={setActiveTab}
           className="flex flex-col h-full"
         >
-          <TabsList className="grid w-full grid-cols-6 mb-6 glass rounded-lg">
+          <TabsList className="grid w-full grid-cols-7 mb-6 glass rounded-lg">
             <TabsTrigger value="general">
               {t("settings.tabGeneral")}
             </TabsTrigger>
@@ -238,6 +238,9 @@ export function SettingsPage({
               {t("settings.tabAdvanced")}
             </TabsTrigger>
             <TabsTrigger value="usage">{t("usage.title")}</TabsTrigger>
+            <TabsTrigger value="lan">
+              <Wifi className="h-4 w-4 mr-1" /> LAN
+            </TabsTrigger>
             <TabsTrigger value="about">{t("common.about")}</TabsTrigger>
           </TabsList>
 
@@ -479,28 +482,6 @@ export function SettingsPage({
                       </AccordionItem>
 
                       <AccordionItem
-                        value="lanBroadcast"
-                        className="rounded-xl glass-card overflow-hidden"
-                      >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
-                          <div className="flex items-center gap-3">
-                            <Wifi className="h-5 w-5 text-green-500" />
-                            <div className="text-left">
-                              <h3 className="text-base font-semibold">
-                                LAN Broadcast
-                              </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                Broadcast usage data for Cardputer & local devices
-                              </p>
-                            </div>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
-                          <LanBroadcastSection />
-                        </AccordionContent>
-                      </AccordionItem>
-
-                      <AccordionItem
                         value="logConfig"
                         className="rounded-xl glass-card overflow-hidden"
                       >
@@ -526,12 +507,22 @@ export function SettingsPage({
                 ) : null}
               </TabsContent>
 
-              <TabsContent value="about" className="mt-0">
-                <AboutSection isPortable={isPortable} />
-              </TabsContent>
-
               <TabsContent value="usage" className="mt-0">
                 <UsageDashboard />
+              </TabsContent>
+
+              <TabsContent value="lan" className="space-y-6 mt-0">
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <LanBroadcastSection />
+                </motion.div>
+              </TabsContent>
+
+              <TabsContent value="about" className="mt-0">
+                <AboutSection isPortable={isPortable} />
               </TabsContent>
             </div>
 
