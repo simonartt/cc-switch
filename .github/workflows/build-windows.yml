@@ -1,0 +1,110 @@
+name: Build Windows (Portable)
+
+on:
+  push:
+    branches: ['lan-broadcast', 'build-win*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.12.3
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri App (Windows)
+        shell: bash
+        env:
+          TAURI_SIGNING_COMMAND: ""
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          # 跳过签名，直接构建
+          pnpm tauri build --bundles msi,none 2>&1 || true
+          # 尝试无 bundle 构建（纯 exe）
+          cd src-tauri
+          cargo build --release 2>&1 || true
+          cd ..
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          
+          # 1. MSI installer
+          $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle/msi' -Recurse -Include *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -ne $msi) {
+            $dest = "CC-Switch-LAN-Broadcast-Windows-x86_64.msi"
+            Copy-Item $msi.FullName (Join-Path release-assets $dest)
+            Write-Host "MSI copied: $dest"
+          } else {
+            Write-Warning "No MSI found"
+          }
+
+          # 2. Portable exe
+          $exePath = "src-tauri/target/release/cc-switch.exe"
+          if (Test-Path $exePath) {
+            $portableDir = "release-assets/CC-Switch-Portable"
+            New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+            Copy-Item $exePath $portableDir
+            Set-Content -Path (Join-Path $portableDir "portable.ini") -Value "portable=true" -Encoding UTF8
+            Compress-Archive -Path "$portableDir/*" -DestinationPath "release-assets/CC-Switch-LAN-Broadcast-Windows-Portable.zip" -Force
+            Remove-Item -Recurse -Force $portableDir
+            Write-Host "Portable zip created"
+          } else {
+            Write-Warning "Exe not found, checking debug build..."
+            $exeDebug = "src-tauri/target/debug/cc-switch.exe"
+            if (Test-Path $exeDebug) {
+              Copy-Item $exeDebug "release-assets/cc-switch-debug.exe"
+              Write-Host "Debug exe copied"
+            }
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cc-switch-windows
+          path: release-assets/*
