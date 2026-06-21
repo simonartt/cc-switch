@@ -62,9 +62,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ""
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
-          # 跳过签名，直接构建
-          pnpm tauri build --bundles msi,none 2>&1 || true
-          # 尝试无 bundle 构建（纯 exe）
+          # 跳过签名，直接构建（先 tauri build 确保前端编译进去）
+          pnpm tauri build 2>&1 || true
+          # 再编译纯 exe 做备用
           cd src-tauri
           cargo build --release 2>&1 || true
           cd ..
@@ -74,14 +74,21 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
           
-          # 1. MSI installer
+          # 1. 安装包（MSI 或 NSIS）
           $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle/msi' -Recurse -Include *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($null -ne $msi) {
             $dest = "CC-Switch-LAN-Broadcast-Windows-x86_64.msi"
             Copy-Item $msi.FullName (Join-Path release-assets $dest)
             Write-Host "MSI copied: $dest"
           } else {
-            Write-Warning "No MSI found"
+            $nsis = Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -Recurse -Include *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -ne $nsis) {
+              $dest = "CC-Switch-LAN-Broadcast-Windows-x86_64-Installer.exe"
+              Copy-Item $nsis.FullName (Join-Path release-assets $dest)
+              Write-Host "NSIS installer copied: $dest"
+            } else {
+              Write-Warning "No MSI or NSIS installer found"
+            }
           }
 
           # 2. Portable exe
