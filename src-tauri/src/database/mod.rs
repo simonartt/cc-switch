@@ -38,12 +38,13 @@ pub(crate) use dao::proxy::{
     PRICING_SOURCE_RESPONSE,
 };
 pub use dao::FailoverQueueItem;
+pub use dao::proxy::UsageLogRow;
 
 use crate::config::get_app_config_dir;
 use crate::error::AppError;
 use rusqlite::{hooks::Action, Connection};
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 // DAO 方法通过 impl Database 提供，无需额外导出
 
@@ -104,9 +105,13 @@ impl Database {
 
         let conn = Connection::open(&db_path).map_err(|e| AppError::Database(e.to_string()))?;
 
+        // 启用 WAL 模式
+        conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
+
         // 启用外键约束
         conn.execute("PRAGMA foreign_keys = ON;", [])
             .map_err(|e| AppError::Database(e.to_string()))?;
+
         if !db_exists {
             // For a brand-new database, configure incremental auto-vacuum
             // before creating any tables so no rebuild is needed later.
@@ -157,6 +162,27 @@ impl Database {
         }
 
         Ok(db)
+    }
+
+    /// 打开只读数据库连接（用于后台服务，如 usage_push）
+    pub fn new_readonly() -> Option<Arc<Self>> {
+        let db_path = get_app_config_dir().join("cc-switch.db");
+        if !db_path.exists() {
+            return None;
+        }
+        match Connection::open(&db_path) {
+            Ok(conn) => {
+                // 启用 WAL 以便并发读取
+                let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                Some(Arc::new(Database {
+                    conn: Mutex::new(conn),
+                }))
+            }
+            Err(e) => {
+                log::warn!("[usage-push] 打开只读数据库失败: {e}");
+                None
+            }
+        }
     }
 
     /// 创建内存数据库（用于测试）

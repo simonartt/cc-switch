@@ -870,6 +870,106 @@ impl Database {
 
         Ok(())
     }
+
+    // ==================== Usage Log Queries (for push service) ====================
+
+    /// 获取最大日志 ID
+    pub fn get_max_usage_log_id(&self) -> Result<i64, AppError> {
+        let conn = lock_conn!(self.conn);
+        let result: i64 = conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM proxy_request_logs", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(result)
+    }
+
+    /// 获取自指定 ID 之后的新日志记录
+    pub fn get_usage_logs_since(&self, since_id: i64, limit: i64) -> Result<Vec<UsageLogRow>, AppError> {
+        let conn = lock_conn!(self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, request_id, app_type, provider_id, model,
+                        request_model, pricing_model,
+                        input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                        input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd,
+                        total_cost_usd,
+                        latency_ms, first_token_ms, duration_ms,
+                        status_code, error_message, is_streaming, data_source,
+                        created_at
+                 FROM proxy_request_logs
+                 WHERE id > ?1
+                 ORDER BY id ASC
+                 LIMIT ?2"
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![since_id, limit], |row| {
+                Ok(UsageLogRow {
+                    id: row.get(0)?,
+                    request_id: row.get(1)?,
+                    app_type: row.get(2)?,
+                    provider_id: row.get(3)?,
+                    model: row.get(4)?,
+                    request_model: row.get(5)?,
+                    pricing_model: row.get(6)?,
+                    input_tokens: row.get(7)?,
+                    output_tokens: row.get(8)?,
+                    cache_read_tokens: row.get(9)?,
+                    cache_creation_tokens: row.get(10)?,
+                    input_cost_usd: row.get(11)?,
+                    output_cost_usd: row.get(12)?,
+                    cache_read_cost_usd: row.get(13)?,
+                    cache_creation_cost_usd: row.get(14)?,
+                    total_cost_usd: row.get(15)?,
+                    latency_ms: row.get(16)?,
+                    first_token_ms: row.get(17)?,
+                    duration_ms: row.get(18)?,
+                    status_code: row.get(19)?,
+                    error_message: row.get(20)?,
+                    is_streaming: row.get::<_, i32>(21)? != 0,
+                    data_source: row.get(22)?,
+                    created_at: row.get(23)?,
+                })
+            })
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| AppError::Database(e.to_string()))?);
+        }
+        Ok(result)
+    }
+}
+
+/// 使用统计日志行（用于推送服务）
+#[derive(Debug, Clone)]
+pub struct UsageLogRow {
+    pub id: i64,
+    pub request_id: String,
+    pub app_type: String,
+    pub provider_id: String,
+    pub model: String,
+    pub request_model: Option<String>,
+    pub pricing_model: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
+    pub input_cost_usd: String,
+    pub output_cost_usd: String,
+    pub cache_read_cost_usd: String,
+    pub cache_creation_cost_usd: String,
+    pub total_cost_usd: String,
+    pub latency_ms: i64,
+    pub first_token_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub status_code: i64,
+    pub error_message: Option<String>,
+    pub is_streaming: bool,
+    pub data_source: String,
+    pub created_at: i64,
 }
 
 #[cfg(test)]

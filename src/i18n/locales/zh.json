@@ -1524,7 +1524,17 @@
     "modelsDevTruncated": "仅显示前 {{shown}} 条，共 {{total}} 条结果，请缩小搜索范围",
     "modelsDevDefaultHint": "默认展示最新发布的 {{shown}} 个模型（共 {{total}} 个），输入关键字可全量搜索",
     "cacheReadCostPerMillion": "缓存读取成本 (每百万 tokens, USD)",
-    "cacheCreationCostPerMillion": "缓存写入成本 (每百万 tokens, USD)"
+    "cacheCreationCostPerMillion": "缓存写入成本 (每百万 tokens, USD)",
+    "push": {
+      "title": "远程推送",
+      "description": "将使用统计推送到监控服务器",
+      "enable": "启用推送",
+      "enableHint": "定时将使用日志推送到配置的服务器",
+      "serverUrl": "服务器地址",
+      "serverUrlHint": "请包含协议和端口号，例如 http://192.168.1.100:3344",
+      "saveSuccess": "推送设置已保存",
+      "saveError": "保存推送设置失败"
+    }
   },
   "usageScript": {
     "title": "配置用量查询",

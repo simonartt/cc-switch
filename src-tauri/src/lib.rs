@@ -34,6 +34,7 @@ mod store;
 
 mod tray;
 mod usage_events;
+mod usage_push;
 mod usage_script;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
@@ -906,6 +907,8 @@ pub fn run() {
                 app_state.db.clone(),
                 app.handle().clone(),
             );
+            // 启动使用统计推送服务
+            usage_push::start_worker(app_state.db.clone());
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
 

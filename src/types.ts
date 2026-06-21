@@ -415,6 +415,12 @@ export interface Settings {
   // Linux: "gnome-terminal" | "konsole" | "xfce4-terminal" | "alacritty" | "kitty" | "ghostty"
   preferredTerminal?: string;
 
+  // ===== 使用统计推送设置 =====
+  // 是否启用使用统计远程推送
+  usagePushEnabled?: boolean;
+  // 使用统计推送目标服务器 URL
+  usagePushServerUrl?: string;
+
   // ===== 本机自动迁移状态 =====
   localMigrations?: {
     codexThirdPartyHistoryProviderBucketV1?: {

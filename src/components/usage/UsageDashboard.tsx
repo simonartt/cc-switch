@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { UsageHero } from "./UsageHero";
 import { UsageTrendChart } from "./UsageTrendChart";
@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Coins,
   LayoutGrid,
+  Upload,
 } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import {
@@ -31,6 +32,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { usageKeys, useModelStats, useProviderStats } from "@/lib/query/usage";
 import { useUsageEventBridge } from "@/hooks/useUsageEventBridge";
+import { settingsApi } from "@/lib/api/settings";
+import type { Settings } from "@/types";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   Accordion,
   AccordionContent,
@@ -75,6 +82,12 @@ export function UsageDashboard() {
   const [model, setModel] = useState<string | undefined>(undefined);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(30000);
 
+  // 使用统计推送设置
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushUrl, setPushUrl] = useState("");
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushSaving, setPushSaving] = useState(false);
+
   // 切应用时清掉下游筛选，避免留下一个在新范围内查无数据的"幽灵"组合；
   // 切 Provider 同理清掉模型（模型选项随 Provider 级联）。
   const changeAppType = (next: AppTypeFilter) => {
@@ -94,6 +107,44 @@ export function UsageDashboard() {
   // 后端写入新日志时 emit `usage-log-recorded`，本 hook 立刻 invalidate 所有
   // usage 查询，实现实时刷新（仅在 Dashboard 挂载时生效，离开页面自动取消监听）
   useUsageEventBridge();
+
+  // 加载推送设置
+  useEffect(() => {
+    let cancelled = false;
+    setPushLoading(true);
+    settingsApi
+      .get()
+      .then((s: Settings) => {
+        if (cancelled) return;
+        setPushEnabled(s.usagePushEnabled ?? false);
+        setPushUrl(s.usagePushServerUrl ?? "");
+      })
+      .catch((err: Error) => {
+        console.error("加载推送设置失败:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setPushLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSavePushConfig = async () => {
+    try {
+      setPushSaving(true);
+      const settings = await settingsApi.get();
+      settings.usagePushEnabled = pushEnabled;
+      settings.usagePushServerUrl = pushUrl || undefined;
+      await settingsApi.save(settings);
+      toast.success(t("usage.push.saveSuccess"));
+    } catch (err) {
+      toast.error(t("usage.push.saveError"));
+      console.error("保存推送设置失败:", err);
+    } finally {
+      setPushSaving(false);
+    }
+  };
 
   const changeRefreshInterval = (next: number) => {
     setRefreshIntervalMs(next);
@@ -380,6 +431,77 @@ export function UsageDashboard() {
           </AccordionTrigger>
           <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
             <PricingConfigPanel />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* 使用统计推送设置 */}
+        <AccordionItem
+          value="push"
+          className="rounded-xl glass-card overflow-hidden"
+        >
+          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+            <div className="flex items-center gap-3">
+              <Upload className="h-5 w-5 text-blue-500" />
+              <div className="text-left">
+                <h3 className="text-base font-semibold">
+                  {t("usage.push.title")}
+                </h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  {t("usage.push.description")}
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50 space-y-4">
+            {pushLoading ? (
+              <p className="text-sm text-muted-foreground">
+                {t("common.loading")}
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <label className="text-sm font-medium">
+                      {t("usage.push.enable")}
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {t("usage.push.enableHint")}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={pushEnabled}
+                    onCheckedChange={setPushEnabled}
+                  />
+                </div>
+
+                {pushEnabled && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      {t("usage.push.serverUrl")}
+                    </label>
+                    <Input
+                      value={pushUrl}
+                      onChange={(e) => setPushUrl(e.target.value)}
+                      placeholder="http://192.168.6.66:3344"
+                      className="font-mono text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("usage.push.serverUrlHint")}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={handleSavePushConfig}
+                    disabled={pushSaving}
+                    size="sm"
+                  >
+                    {pushSaving ? t("common.saving") : t("common.save")}
+                  </Button>
+                </div>
+              </>
+            )}
           </AccordionContent>
         </AccordionItem>
       </Accordion>

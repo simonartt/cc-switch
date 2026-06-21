@@ -116,6 +116,8 @@ pub async fn save_settings(
             }
         }
     }
+    // 设置变更后检查是否需要重启使用统计推送服务
+    crate::usage_push::restart_if_needed();
     Ok(true)
 }
 

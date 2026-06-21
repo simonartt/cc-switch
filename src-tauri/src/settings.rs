@@ -475,6 +475,14 @@ pub struct AppSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred_terminal: Option<String>,
 
+    // ===== 使用统计推送设置 =====
+    /// 是否启用使用统计推送（将使用数据推送到远程服务器）
+    #[serde(default)]
+    pub usage_push_enabled: bool,
+    /// 使用统计推送目标服务器 URL
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_push_server_url: Option<String>,
+
     // ===== 本机自动迁移状态 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_migrations: Option<LocalMigrations>,
@@ -532,6 +540,8 @@ impl Default for AppSettings {
             backup_interval_hours: None,
             backup_retain_count: None,
             preferred_terminal: None,
+            usage_push_enabled: false,
+            usage_push_server_url: None,
             local_migrations: None,
         }
     }
