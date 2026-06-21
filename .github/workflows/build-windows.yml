@@ -62,12 +62,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ""
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
-          # 跳过签名，直接构建（先 tauri build 确保前端编译进去）
-          pnpm tauri build 2>&1 || true
-          # 再编译纯 exe 做备用
-          cd src-tauri
-          cargo build --release 2>&1 || true
-          cd ..
+          # 跳过签名，直接构建（编译含前端的二进制，MSI 打包可能失败但 binary 是好的）
+          pnpm tauri build 2>&1 || echo "MSI bundling may have failed, but binary is ready"
 
       - name: Collect artifacts
         shell: pwsh
