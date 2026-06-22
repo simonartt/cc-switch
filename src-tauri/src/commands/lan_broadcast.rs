@@ -25,6 +25,12 @@ impl BroadcastManager {
     }
 }
 
+impl Default for BroadcastManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 启动局域网广播
 #[tauri::command]
 pub async fn start_lan_broadcast(

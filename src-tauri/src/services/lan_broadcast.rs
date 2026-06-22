@@ -364,7 +364,7 @@ pub fn detect_local_ip() -> String {
         }
     }
     // fallback: 枚举系统网络接口
-    if let Ok(ifaces) = std::fs::read_dir("/sys/class/net") {
+    if let Ok(_ifaces) = std::fs::read_dir("/sys/class/net") {
         // Linux: 读取 /sys/class/net/*/address
         // macOS/其他: fallback 到 hostname 解析
     }
