@@ -877,15 +877,21 @@ impl Database {
     pub fn get_max_usage_log_id(&self) -> Result<i64, AppError> {
         let conn = lock_conn!(self.conn);
         let result: i64 = conn
-            .query_row("SELECT COALESCE(MAX(id), 0) FROM proxy_request_logs", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) FROM proxy_request_logs",
+                [],
+                |row| row.get(0),
+            )
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(result)
     }
 
     /// 获取自指定 ID 之后的新日志记录
-    pub fn get_usage_logs_since(&self, since_id: i64, limit: i64) -> Result<Vec<UsageLogRow>, AppError> {
+    pub fn get_usage_logs_since(
+        &self,
+        since_id: i64,
+        limit: i64,
+    ) -> Result<Vec<UsageLogRow>, AppError> {
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare(

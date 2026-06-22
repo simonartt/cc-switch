@@ -4,6 +4,7 @@ pub mod coding_plan;
 pub mod config;
 pub mod env_checker;
 pub mod env_manager;
+pub mod lan_broadcast;
 pub mod mcp;
 pub mod model_fetch;
 pub mod omo;
@@ -28,7 +29,6 @@ pub mod usage_stats;
 pub mod webdav;
 pub mod webdav_auto_sync;
 pub mod webdav_sync;
-pub mod lan_broadcast;
 
 pub use config::ConfigService;
 pub use mcp::McpService;

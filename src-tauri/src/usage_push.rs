@@ -92,10 +92,7 @@ pub fn start_worker(db: Arc<Database>) {
         }
     };
 
-    log::info!(
-        "[usage-push] 启动推送服务，目标: {}",
-        server_url
-    );
+    log::info!("[usage-push] 启动推送服务，目标: {}", server_url);
 
     PUSH_ENABLED.store(true, Ordering::Release);
 
@@ -147,11 +144,7 @@ pub fn restart_if_needed() {
 }
 
 /// 后台推送循环
-async fn run_push_loop(
-    db: Arc<Database>,
-    device_id: String,
-    device_name: String,
-) {
+async fn run_push_loop(db: Arc<Database>, device_id: String, device_name: String) {
     let client = match HttpClient::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -245,12 +238,7 @@ async fn run_push_loop(
         };
 
         // 发送
-        match client
-            .post(&push_url)
-            .json(&body)
-            .send()
-            .await
-        {
+        match client.post(&push_url).json(&body).send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
                     // 更新 last_id 为本批次最大 ID
@@ -265,11 +253,7 @@ async fn run_push_loop(
                 } else {
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
-                    log::warn!(
-                        "[usage-push] 服务器返回错误 ({}): {}",
-                        status,
-                        text
-                    );
+                    log::warn!("[usage-push] 服务器返回错误 ({}): {}", status, text);
                     // 400 错误不重试（数据格式问题）
                     if status.is_client_error() {
                         log::warn!("[usage-push] 客户端错误，跳过这批记录");

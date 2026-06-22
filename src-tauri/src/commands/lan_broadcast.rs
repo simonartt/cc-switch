@@ -55,9 +55,7 @@ pub async fn start_lan_broadcast(
 
 /// 停止局域网广播
 #[tauri::command]
-pub async fn stop_lan_broadcast(
-    bm: State<'_, BroadcastManager>,
-) -> Result<String, String> {
+pub async fn stop_lan_broadcast(bm: State<'_, BroadcastManager>) -> Result<String, String> {
     let mut state = bm.state.lock().await;
     if !state.running {
         return Err("LAN broadcast is not running".to_string());
@@ -70,9 +68,7 @@ pub async fn stop_lan_broadcast(
 
 /// 获取局域网广播状态
 #[tauri::command]
-pub async fn get_lan_broadcast_status(
-    bm: State<'_, BroadcastManager>,
-) -> Result<bool, String> {
+pub async fn get_lan_broadcast_status(bm: State<'_, BroadcastManager>) -> Result<bool, String> {
     let state = bm.state.lock().await;
     Ok(state.running)
 }
