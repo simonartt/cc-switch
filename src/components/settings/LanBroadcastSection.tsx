@@ -76,11 +76,7 @@ export function LanBroadcastSection() {
             </p>
           </div>
         </div>
-        <Switch
-          checked={enabled}
-          disabled={loading}
-          onCheckedChange={toggle}
-        />
+        <Switch checked={enabled} disabled={loading} onCheckedChange={toggle} />
       </div>
 
       {/* 开启后显示连接信息 */}
@@ -94,9 +90,7 @@ export function LanBroadcastSection() {
           <div className="flex items-center justify-between p-3 rounded-lg bg-background/50">
             <div>
               <p className="text-xs text-muted-foreground">Server IP</p>
-              <p className="text-sm font-mono">
-                {localIp || "Detecting..."}
-              </p>
+              <p className="text-sm font-mono">{localIp || "Detecting..."}</p>
             </div>
             {localIp && (
               <button
@@ -127,7 +121,9 @@ export function LanBroadcastSection() {
           {/* UDP 发现端口 */}
           <div className="flex items-center justify-between p-3 rounded-lg bg-background/50">
             <div>
-              <p className="text-xs text-muted-foreground">UDP Discovery Port</p>
+              <p className="text-xs text-muted-foreground">
+                UDP Discovery Port
+              </p>
               <p className="text-sm font-mono">3445</p>
             </div>
             <button
@@ -142,7 +138,9 @@ export function LanBroadcastSection() {
           {/* 完整连接字符串 */}
           {localIp && (
             <div className="p-3 rounded-lg bg-muted/50">
-              <p className="text-xs text-muted-foreground mb-1">Cardputer Manual Entry</p>
+              <p className="text-xs text-muted-foreground mb-1">
+                Cardputer Manual Entry
+              </p>
               <p className="text-sm font-mono text-green-600 dark:text-green-400">
                 {localIp}:3345
               </p>

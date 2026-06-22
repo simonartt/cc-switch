@@ -152,10 +152,7 @@ impl LanBroadcast {
         Ok(())
     }
 
-    fn start_http(
-        db: Arc<Database>,
-        stop_flag: Arc<AtomicBool>,
-    ) -> JoinHandle<Result<(), String>> {
+    fn start_http(db: Arc<Database>, stop_flag: Arc<AtomicBool>) -> JoinHandle<Result<(), String>> {
         tokio::spawn(async move {
             let app_state = HttpAppState { db };
 
@@ -204,10 +201,7 @@ impl LanBroadcast {
             })
             .unwrap_or_default();
 
-            log::info!(
-                "LAN broadcast started on UDP port {}",
-                BROADCAST_PORT
-            );
+            log::info!("LAN broadcast started on UDP port {}", BROADCAST_PORT);
 
             // 同时向 255.255.255.255 和子网广播地址发送
             let mut addrs = vec![format!("255.255.255.255:{}", BROADCAST_PORT)];
@@ -243,10 +237,7 @@ impl LanBroadcast {
             .get_usage_summary(start_date, end_date, None, None, None)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let cost: f64 = summary
-            .total_cost
-            .parse()
-            .unwrap_or(0.0);
+        let cost: f64 = summary.total_cost.parse().unwrap_or(0.0);
 
         Ok(Json(SummaryResponse {
             summary: SummaryData {
@@ -316,10 +307,7 @@ impl LanBroadcast {
         };
         let (start_date, end_date) = date_params.resolve();
 
-        let _days: i64 = params
-            .get("days")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(8);
+        let _days: i64 = params.get("days").and_then(|v| v.parse().ok()).unwrap_or(8);
 
         let db = &state.db;
         let daily_stats = db
@@ -381,13 +369,12 @@ pub fn detect_local_ip() -> String {
         // macOS/其他: fallback 到 hostname 解析
     }
     // macOS fallback: 用 ifconfig 解析
-    if let Ok(out) = std::process::Command::new("ifconfig")
-        .args(["-l"])
-        .output()
-    {
+    if let Ok(out) = std::process::Command::new("ifconfig").args(["-l"]).output() {
         let ifaces_str = String::from_utf8_lossy(&out.stdout);
         for iface in ifaces_str.split_whitespace() {
-            if iface == "lo0" || iface == "lo" { continue; }
+            if iface == "lo0" || iface == "lo" {
+                continue;
+            }
             if let Ok(addr_out) = std::process::Command::new("ifconfig")
                 .args([iface])
                 .output()
