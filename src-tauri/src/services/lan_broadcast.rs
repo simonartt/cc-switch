@@ -12,7 +12,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -82,6 +82,37 @@ struct TrendsResponse {
 struct TrendEntry {
     date: String,
     requests: u64,
+}
+
+/// 可选的日期范围查询参数（Unix 秒级时间戳）
+#[derive(Deserialize, Default)]
+struct DateRangeQuery {
+    start_date: Option<i64>,
+    end_date: Option<i64>,
+}
+
+impl DateRangeQuery {
+    /// 默认返回「今天」范围（匹配桌面端默认 preset="today"）
+    fn today() -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let today_start = now - (now % 86400); // 当天 00:00:00 UTC
+        Self {
+            start_date: Some(today_start),
+            end_date: Some(now),
+        }
+    }
+
+    fn resolve(&self) -> (Option<i64>, Option<i64>) {
+        if self.start_date.is_some() || self.end_date.is_some() {
+            (self.start_date, self.end_date)
+        } else {
+            let d = Self::today();
+            (d.start_date, d.end_date)
+        }
+    }
 }
 
 /// LAN 广播服务句柄
@@ -204,10 +235,12 @@ impl LanBroadcast {
 
     async fn handle_summary(
         AxumState(state): AxumState<HttpAppState>,
+        Query(params): Query<DateRangeQuery>,
     ) -> Result<Json<SummaryResponse>, StatusCode> {
+        let (start_date, end_date) = params.resolve();
         let db = &state.db;
         let summary = db
-            .get_usage_summary(None, None, None, None, None)
+            .get_usage_summary(start_date, end_date, None, None, None)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let cost: f64 = summary
@@ -231,14 +264,28 @@ impl LanBroadcast {
         AxumState(state): AxumState<HttpAppState>,
         Query(params): Query<HashMap<String, String>>,
     ) -> Result<Json<LogsResponse>, StatusCode> {
+        let date_params: DateRangeQuery = DateRangeQuery {
+            start_date: params.get("start_date").and_then(|v| v.parse().ok()),
+            end_date: params.get("end_date").and_then(|v| v.parse().ok()),
+        };
+        let (start_date, end_date) = date_params.resolve();
+
         let limit: usize = params
             .get("limit")
             .and_then(|v| v.parse().ok())
             .unwrap_or(6);
 
         let db = &state.db;
+        let filters = LogFilters {
+            app_type: None,
+            provider_name: None,
+            model: None,
+            status_code: None,
+            start_date,
+            end_date,
+        };
         let paginated = db
-            .get_request_logs(&LogFilters::default(), 0, limit as u32)
+            .get_request_logs(&filters, 0, limit as u32)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let logs: Vec<LogEntry> = paginated
@@ -263,6 +310,12 @@ impl LanBroadcast {
         AxumState(state): AxumState<HttpAppState>,
         Query(params): Query<HashMap<String, String>>,
     ) -> Result<Json<TrendsResponse>, StatusCode> {
+        let date_params: DateRangeQuery = DateRangeQuery {
+            start_date: params.get("start_date").and_then(|v| v.parse().ok()),
+            end_date: params.get("end_date").and_then(|v| v.parse().ok()),
+        };
+        let (start_date, end_date) = date_params.resolve();
+
         let _days: i64 = params
             .get("days")
             .and_then(|v| v.parse().ok())
@@ -270,7 +323,7 @@ impl LanBroadcast {
 
         let db = &state.db;
         let daily_stats = db
-            .get_daily_trends(None, None, None, None, None)
+            .get_daily_trends(start_date, end_date, None, None, None)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let trends: Vec<TrendEntry> = daily_stats
