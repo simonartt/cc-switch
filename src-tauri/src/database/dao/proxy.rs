@@ -878,7 +878,7 @@ impl Database {
         let conn = lock_conn!(self.conn);
         let result: i64 = conn
             .query_row(
-                "SELECT COALESCE(MAX(id), 0) FROM proxy_request_logs",
+                "SELECT COALESCE(MAX(rowid), 0) FROM proxy_request_logs",
                 [],
                 |row| row.get(0),
             )
@@ -895,7 +895,7 @@ impl Database {
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, request_id, app_type, provider_id, model,
+                "SELECT rowid, request_id, app_type, provider_id, model,
                         request_model, pricing_model,
                         input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                         input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd,
@@ -904,8 +904,8 @@ impl Database {
                         status_code, error_message, is_streaming, data_source,
                         created_at
                  FROM proxy_request_logs
-                 WHERE id > ?1
-                 ORDER BY id ASC
+                 WHERE rowid > ?1
+                 ORDER BY rowid ASC
                  LIMIT ?2"
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
