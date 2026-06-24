@@ -352,9 +352,9 @@ fn hostname() -> String {
 
 /// 检测本机主局域网 IP 地址
 pub fn detect_local_ip() -> String {
-    // 用 UDP 连接一个不可达地址来获取本机 IP（不会实际发包）
+    // 用 UDP 连接一个可达地址来获取本机 IP（不会实际发包）
     if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if socket.connect("10.255.255.255:1").is_ok() {
+        if socket.connect("1.1.1.1:53").is_ok() {
             if let Ok(local) = socket.local_addr() {
                 let ip = local.ip();
                 if !ip.is_loopback() {
@@ -363,28 +363,83 @@ pub fn detect_local_ip() -> String {
             }
         }
     }
-    // fallback: 枚举系统网络接口
-    if let Ok(_ifaces) = std::fs::read_dir("/sys/class/net") {
-        // Linux: 读取 /sys/class/net/*/address
-        // macOS/其他: fallback 到 hostname 解析
-    }
-    // macOS fallback: 用 ifconfig 解析
-    if let Ok(out) = std::process::Command::new("ifconfig").args(["-l"]).output() {
-        let ifaces_str = String::from_utf8_lossy(&out.stdout);
-        for iface in ifaces_str.split_whitespace() {
-            if iface == "lo0" || iface == "lo" {
-                continue;
+
+    // Windows: 解析 ipconfig 输出
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("ipconfig").output() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                // 匹配 "IPv4 Address. . . . . . . . . . . : 192.168.x.x"
+                if let Some(val) = trimmed
+                    .strip_prefix("IPv4 Address")
+                    .or_else(|| trimmed.strip_prefix("IPv4地址"))
+                {
+                    if let Some(ip_str) = val.split(':').nth(1).or_else(|| val.split('：').nth(1)) {
+                        let ip_str = ip_str.trim();
+                        if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
+                            if !ip.is_loopback() && !ip.is_link_local() {
+                                return ip.to_string();
+                            }
+                        }
+                    }
+                }
             }
-            if let Ok(addr_out) = std::process::Command::new("ifconfig")
-                .args([iface])
-                .output()
-            {
-                let info = String::from_utf8_lossy(&addr_out.stdout);
-                // 找 inet 行，排除 127.x
-                for line in info.lines() {
-                    let line = line.trim();
-                    if let Some(rest) = line.strip_prefix("inet ") {
-                        if let Some(ip_str) = rest.split_whitespace().next() {
+        }
+    }
+
+    // macOS: 用 ifconfig 解析
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("ifconfig").args(["-l"]).output() {
+            let ifaces_str = String::from_utf8_lossy(&out.stdout);
+            for iface in ifaces_str.split_whitespace() {
+                if iface == "lo0" || iface == "lo" {
+                    continue;
+                }
+                if let Ok(addr_out) = std::process::Command::new("ifconfig")
+                    .args([iface])
+                    .output()
+                {
+                    let info = String::from_utf8_lossy(&addr_out.stdout);
+                    for line in info.lines() {
+                        let line = line.trim();
+                        if let Some(rest) = line.strip_prefix("inet ") {
+                            if let Some(ip_str) = rest.split_whitespace().next() {
+                                if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
+                                    if !ip.is_loopback() && !ip.is_link_local() {
+                                        return ip.to_string();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Linux: 读取 /sys/class/net 接口
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == "lo" {
+                    continue;
+                }
+                // 尝试从 /sys/class/net/{iface}/address 读取
+                // 实际上 Linux 上更好的方法是解析 ip addr show
+                if let Ok(out) = std::process::Command::new("ip")
+                    .args(["-o", "-4", "addr", "show", &name])
+                    .output()
+                {
+                    let info = String::from_utf8_lossy(&out.stdout);
+                    // Output: "2: eth0    inet 192.168.1.5/24 brd ..."
+                    for part in info.split_whitespace() {
+                        if let Some(ip_str) = part.split('/').next() {
                             if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
                                 if !ip.is_loopback() && !ip.is_link_local() {
                                     return ip.to_string();
@@ -396,6 +451,7 @@ pub fn detect_local_ip() -> String {
             }
         }
     }
+
     // 最终 fallback
     "127.0.0.1".to_string()
 }

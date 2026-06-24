@@ -55,6 +55,14 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version =' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "App version: $VERSION"
+
       - name: Build Tauri App (Windows)
         shell: bash
         env:
@@ -73,13 +81,14 @@ jobs:
           # 1. 安装包（MSI 或 NSIS）
           $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle/msi' -Recurse -Include *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($null -ne $msi) {
-            $dest = "CC-Switch-LAN-Broadcast-Windows-x86_64.msi"
+            $ver = "${{ steps.version.outputs.version }}"
+            $dest = "CC-Switch-$ver-Windows-x86_64.msi"
             Copy-Item $msi.FullName (Join-Path release-assets $dest)
             Write-Host "MSI copied: $dest"
           } else {
             $nsis = Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -Recurse -Include *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($null -ne $nsis) {
-              $dest = "CC-Switch-LAN-Broadcast-Windows-x86_64-Installer.exe"
+              $dest = "CC-Switch-${{ steps.version.outputs.version }}-Windows-x86_64-Installer.exe"
               Copy-Item $nsis.FullName (Join-Path release-assets $dest)
               Write-Host "NSIS installer copied: $dest"
             } else {
