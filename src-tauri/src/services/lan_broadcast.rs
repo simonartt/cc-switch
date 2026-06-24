@@ -344,31 +344,56 @@ fn hostname() -> String {
 
 /// 检测本机主局域网 IP 地址
 pub fn detect_local_ip() -> String {
-    // Windows: 解析 ipconfig，兼容中英文系统
+    // Windows: 解析 ipconfig，兼容中英文系统，隐藏命令窗口
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("ipconfig").output() {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        if let Ok(out) = std::process::Command::new("ipconfig")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
             let stdout = String::from_utf8_lossy(&out.stdout);
             for line in stdout.lines() {
                 let trimmed = line.trim();
                 if !trimmed.contains("IPv4") {
                     continue;
                 }
-                // 提取冒号后的内容，兼容 : 和 ： 以及多个空格/点
+                // 提取冒号后的内容，兼容 : 和 ：
                 let after_colon = trimmed
                     .split(':').nth(1)
                     .or_else(|| trimmed.split('：').nth(1))
                     .unwrap_or("")
                     .trim();
-                // 提取第一个 IP 地址 (xxx.xxx.xxx.xxx)
-                if let Some(ip_str) = after_colon
+                // 提取 IP 地址 (xxx.xxx.xxx.xxx)，去掉尾部 (首选)/(Preferred) 等后缀
+                if let Some(raw) = after_colon
                     .split_whitespace()
                     .find(|s| s.chars().filter(|&c| c == '.').count() == 3)
                 {
-                    if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
+                    let clean_ip: String = raw
+                        .chars()
+                        .take_while(|c| c.is_ascii_digit() || *c == '.')
+                        .collect();
+                    if let Ok(ip) = clean_ip.parse::<std::net::Ipv4Addr>() {
                         if !ip.is_loopback() && !ip.is_link_local() {
                             return ip.to_string();
                         }
+                    }
+                }
+            }
+        }
+
+        // Fallback: UDP socket 获取本机 IP
+        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            socket.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
+            if socket.connect("192.168.6.255:1").is_ok()
+                || socket.connect("10.255.255.255:1").is_ok()
+            {
+                if let Ok(local) = socket.local_addr() {
+                    let ip = local.ip();
+                    if !ip.is_loopback() {
+                        return ip.to_string();
                     }
                 }
             }

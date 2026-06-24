@@ -154,14 +154,11 @@ async fn run_push_loop(db: Arc<Database>, device_id: String, device_name: String
         }
     };
 
-    // 上次推送的最大 ID
+    // 记录上次推送的最大 ID
     let mut last_id: i64 = 0;
 
-    // 启动时先查一次初始化
-    if let Ok(max_id) = db.get_max_usage_log_id() {
-        last_id = max_id;
-        log::debug!("[usage-push] 初始 last_id = {}", last_id);
-    }
+    // 先推送所有历史数据，不再跳过已有记录
+    log::debug!("[usage-push] 初始化 last_id = {} (从最早记录开始推送)", last_id);
 
     // 主循环: 每 30 秒检查一次
     loop {
