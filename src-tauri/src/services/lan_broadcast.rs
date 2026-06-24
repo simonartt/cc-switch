@@ -352,36 +352,30 @@ fn hostname() -> String {
 
 /// 检测本机主局域网 IP 地址
 pub fn detect_local_ip() -> String {
-    // 用 UDP 连接一个可达地址来获取本机 IP（不会实际发包）
-    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if socket.connect("1.1.1.1:53").is_ok() {
-            if let Ok(local) = socket.local_addr() {
-                let ip = local.ip();
-                if !ip.is_loopback() {
-                    return ip.to_string();
-                }
-            }
-        }
-    }
-
-    // Windows: 解析 ipconfig 输出
+    // Windows: 解析 ipconfig，兼容中英文系统
     #[cfg(target_os = "windows")]
     {
         if let Ok(out) = std::process::Command::new("ipconfig").output() {
             let stdout = String::from_utf8_lossy(&out.stdout);
             for line in stdout.lines() {
                 let trimmed = line.trim();
-                // 匹配 "IPv4 Address. . . . . . . . . . . : 192.168.x.x"
-                if let Some(val) = trimmed
-                    .strip_prefix("IPv4 Address")
-                    .or_else(|| trimmed.strip_prefix("IPv4地址"))
+                if !trimmed.contains("IPv4") {
+                    continue;
+                }
+                // 提取冒号后的内容，兼容 : 和 ： 以及多个空格/点
+                let after_colon = trimmed
+                    .split(':').nth(1)
+                    .or_else(|| trimmed.split('：').nth(1))
+                    .unwrap_or("")
+                    .trim();
+                // 提取第一个 IP 地址 (xxx.xxx.xxx.xxx)
+                if let Some(ip_str) = after_colon
+                    .split_whitespace()
+                    .find(|s| s.chars().filter(|&c| c == '.').count() == 3)
                 {
-                    if let Some(ip_str) = val.split(':').nth(1).or_else(|| val.split('：').nth(1)) {
-                        let ip_str = ip_str.trim();
-                        if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
-                            if !ip.is_loopback() && !ip.is_link_local() {
-                                return ip.to_string();
-                            }
+                    if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
+                        if !ip.is_loopback() && !ip.is_link_local() {
+                            return ip.to_string();
                         }
                     }
                 }
@@ -420,30 +414,24 @@ pub fn detect_local_ip() -> String {
         }
     }
 
-    // Linux: 读取 /sys/class/net 接口
+    // Linux: 解析 ip addr
     #[cfg(target_os = "linux")]
     {
-        if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if name == "lo" {
-                    continue;
-                }
-                // 尝试从 /sys/class/net/{iface}/address 读取
-                // 实际上 Linux 上更好的方法是解析 ip addr show
-                if let Ok(out) = std::process::Command::new("ip")
-                    .args(["-o", "-4", "addr", "show", &name])
-                    .output()
+        if let Ok(out) = std::process::Command::new("ip")
+            .args(["-o", "-4", "addr", "show"])
+            .output()
+        {
+            let info = String::from_utf8_lossy(&out.stdout);
+            for line in info.lines() {
+                // Format: "2: eth0    inet 192.168.1.5/24 brd ..."
+                if let Some(inet_part) = line.split_whitespace()
+                    .skip_while(|&w| w != "inet")
+                    .nth(1)
                 {
-                    let info = String::from_utf8_lossy(&out.stdout);
-                    // Output: "2: eth0    inet 192.168.1.5/24 brd ..."
-                    for part in info.split_whitespace() {
-                        if let Some(ip_str) = part.split('/').next() {
-                            if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
-                                if !ip.is_loopback() && !ip.is_link_local() {
-                                    return ip.to_string();
-                                }
+                    if let Some(ip_str) = inet_part.split('/').next() {
+                        if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
+                            if !ip.is_loopback() && !ip.is_link_local() {
+                                return ip.to_string();
                             }
                         }
                     }
