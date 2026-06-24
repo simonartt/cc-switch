@@ -42,20 +42,24 @@ pub async fn start_lan_broadcast(
         return Err("LAN broadcast is already running".to_string());
     }
 
+    // 同步检测 IP，确保 frontend 立即获得
+    let local_ip = crate::services::lan_broadcast::detect_local_ip();
+    state.local_ip = local_ip;
+    state.running = true;
+    drop(state);
+
     // Reset stop flag
     bm.stop_flag.store(false, Ordering::Relaxed);
 
     let db = app_state.db.clone();
     let stop_flag = bm.stop_flag.clone();
-    let state_clone = bm.state.clone();
 
     tokio::spawn(async move {
-        if let Err(e) = LanBroadcast::start(db, stop_flag, state_clone).await {
+        if let Err(e) = LanBroadcast::start_services(db, stop_flag).await {
             log::error!("LAN broadcast failed: {}", e);
         }
     });
 
-    state.running = true;
     Ok("LAN broadcast started".to_string())
 }
 

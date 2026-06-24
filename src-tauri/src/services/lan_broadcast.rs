@@ -119,19 +119,11 @@ impl DateRangeQuery {
 pub struct LanBroadcast;
 
 impl LanBroadcast {
-    /// 启动 HTTP 服务 + UDP 广播
-    pub async fn start(
+    /// 启动 HTTP 服务 + UDP 广播（IP 已在命令层检测完成）
+    pub async fn start_services(
         db: Arc<Database>,
         stop_flag: Arc<AtomicBool>,
-        broadcast_state: Arc<Mutex<BroadcastState>>,
     ) -> Result<(), String> {
-        // 检测本机 IP 并保存
-        let local_ip = detect_local_ip();
-        {
-            let mut state = broadcast_state.lock().await;
-            state.local_ip = local_ip.clone();
-        }
-
         let http_handle = Self::start_http(db.clone(), stop_flag.clone());
         let udp_handle = Self::start_udp(stop_flag.clone());
 

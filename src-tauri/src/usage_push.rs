@@ -19,7 +19,6 @@ use serde::Serialize;
 
 /// 推送到远程服务器的单条日志
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct PushLogEntry {
     request_id: String,
     app_type: String,
@@ -48,7 +47,6 @@ struct PushLogEntry {
 
 /// 推送请求体
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct PushRequestBody {
     logs: Vec<PushLogEntry>,
     device_id: String,
