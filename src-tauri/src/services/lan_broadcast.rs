@@ -6,6 +6,10 @@
 
 use crate::database::Database;
 use crate::services::usage_stats::LogFilters;
+use crate::services::usage_stats::find_model_pricing;
+use crate::proxy::usage::calculator::CostCalculator;
+use crate::proxy::usage::TokenUsage;
+use rust_decimal::Decimal;
 use axum::{
     extract::{Query, State as AxumState},
     http::StatusCode,
@@ -18,7 +22,6 @@ use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 /// 广播状态
@@ -93,15 +96,20 @@ struct DateRangeQuery {
 
 impl DateRangeQuery {
     /// 默认返回「今天」范围（匹配桌面端默认 preset="today"）
+    /// 使用本地时区的 00:00:00，与前端 resolveUsageRange("today") 保持完全一致
     fn today() -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        let today_start = now - (now % 86400); // 当天 00:00:00 UTC
+        let local = chrono::Local::now();
+        let now_ts = local.timestamp();
+        let midnight = local
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap()
+            .timestamp();
         Self {
-            start_date: Some(today_start),
-            end_date: Some(now),
+            start_date: Some(midnight),
+            end_date: Some(now_ts),
         }
     }
 
@@ -229,7 +237,70 @@ impl LanBroadcast {
             .get_usage_summary(start_date, end_date, None, None, None)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let cost: f64 = summary.total_cost.parse().unwrap_or(0.0);
+        let mut cost: f64 = summary.total_cost.parse().unwrap_or(0.0);
+
+        // 对 DB 中 total_cost_usd="0" 但有 token 消耗的记录，从定价表实时重算成本
+        let conn = db.conn.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut query_sql = String::from(
+            "SELECT request_id, app_type, model, request_model, input_tokens, output_tokens,
+                    cache_read_tokens, cache_creation_tokens
+             FROM proxy_request_logs
+             WHERE total_cost_usd IN ('0', '0.0')
+               AND (input_tokens > 0 OR output_tokens > 0)"
+        );
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(start) = start_date {
+            query_sql.push_str(" AND created_at >= ?");
+            params.push(Box::new(start));
+        }
+        if let Some(end) = end_date {
+            query_sql.push_str(" AND created_at <= ?");
+            params.push(Box::new(end));
+        }
+        query_sql.push_str(" ORDER BY rowid");
+
+        if let Ok(mut stmt) = conn.prepare(&query_sql) {
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+            let rows_result = stmt.query_map(param_refs.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            });
+            if let Ok(rows) = rows_result {
+                for row_result in rows {
+                    if let Ok((_, ref app_type, ref model, ref request_model, input_t, output_t, cache_read, cache_create)) = row_result {
+                        let model_id = request_model.as_deref().unwrap_or(model);
+                        if let Some(pricing) = find_model_pricing(&conn, model_id) {
+                            let usage = TokenUsage {
+                                input_tokens: input_t as u32,
+                                output_tokens: output_t as u32,
+                                cache_read_tokens: cache_read as u32,
+                                cache_creation_tokens: cache_create as u32,
+                                model: Some(model.clone()),
+                                message_id: None,
+                            };
+                            let calc = CostCalculator::calculate_for_app(
+                                app_type,
+                                &usage,
+                                &pricing,
+                                Decimal::ONE,
+                            );
+                            if let Ok(extra) = calc.total_cost.to_string().parse::<f64>() {
+                                cost += extra;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        drop(conn);
 
         Ok(Json(SummaryResponse {
             summary: SummaryData {
@@ -259,6 +330,7 @@ impl LanBroadcast {
             .unwrap_or(6);
 
         let db = &state.db;
+        let conn = db.conn.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let filters = LogFilters {
             app_type: None,
             provider_name: None,
@@ -275,7 +347,29 @@ impl LanBroadcast {
             .data
             .into_iter()
             .map(|l| {
-                let cost: f64 = l.total_cost_usd.parse().unwrap_or(0.0);
+                let mut cost: f64 = l.total_cost_usd.parse().unwrap_or(0.0);
+                // 对 cost="0" 但有 token 的记录实时重算
+                if cost == 0.0 && (l.input_tokens > 0 || l.output_tokens > 0) {
+                    if let Some(pricing) = find_model_pricing(&conn, &l.model) {
+                        let usage = TokenUsage {
+                            input_tokens: l.input_tokens as u32,
+                            output_tokens: l.output_tokens as u32,
+                            cache_read_tokens: l.cache_read_tokens as u32,
+                            cache_creation_tokens: l.cache_creation_tokens as u32,
+                            model: Some(l.model.clone()),
+                            message_id: None,
+                        };
+                        let calc = CostCalculator::calculate_for_app(
+                            &l.app_type,
+                            &usage,
+                            &pricing,
+                            Decimal::ONE,
+                        );
+                        if let Ok(c) = calc.total_cost.to_string().parse::<f64>() {
+                            cost = c;
+                        }
+                    }
+                }
                 LogEntry {
                     model: l.model,
                     input_tokens: l.input_tokens as u64,
@@ -285,6 +379,7 @@ impl LanBroadcast {
                 }
             })
             .collect();
+        drop(conn);
 
         Ok(Json(LogsResponse { logs }))
     }
