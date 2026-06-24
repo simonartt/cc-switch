@@ -8,13 +8,16 @@
 //! - 每隔 30 秒检查一次状态变化和新的日志记录
 //! - 记录已推送的最大 ID，避免重复推送
 //! - 使用 reqwest 进行 HTTP POST，失败时记录日志并重试
+//! - 推送前用定价表重新计算 cost（DB 中未配定价模型 cost 为 "0"）
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::database::lock_conn;
 use crate::database::Database;
 use reqwest::Client as HttpClient;
+use rust_decimal::Decimal;
 use serde::Serialize;
 
 /// 推送到远程服务器的单条日志
@@ -195,35 +198,67 @@ async fn run_push_loop(db: Arc<Database>, device_id: String, device_name: String
             continue;
         }
 
-        // 构造推送数据
+        // 构造推送数据，对 cost 为 "0" 但有 token 的记录重算成本
+        let conn = lock_conn!(db.conn);
         let push_logs: Vec<PushLogEntry> = logs
             .iter()
-            .map(|row| PushLogEntry {
-                request_id: row.request_id.clone(),
-                app_type: row.app_type.clone(),
-                provider_id: row.provider_id.clone(),
-                model: row.model.clone(),
-                request_model: row.request_model.clone(),
-                pricing_model: row.pricing_model.clone(),
-                input_tokens: row.input_tokens,
-                output_tokens: row.output_tokens,
-                cache_read_tokens: row.cache_read_tokens,
-                cache_creation_tokens: row.cache_creation_tokens,
-                input_cost_usd: row.input_cost_usd.clone(),
-                output_cost_usd: row.output_cost_usd.clone(),
-                cache_read_cost_usd: row.cache_read_cost_usd.clone(),
-                cache_creation_cost_usd: row.cache_creation_cost_usd.clone(),
-                total_cost_usd: row.total_cost_usd.clone(),
-                latency_ms: row.latency_ms,
-                first_token_ms: row.first_token_ms,
-                duration_ms: row.duration_ms,
-                status_code: row.status_code,
-                error_message: row.error_message.clone(),
-                is_streaming: row.is_streaming,
-                data_source: row.data_source.clone(),
-                created_at: row.created_at,
+            .map(|row| {
+                let model_id = row.request_model.as_deref().unwrap_or(&row.model);
+                let total_cost = if row.total_cost_usd == "0"
+                    && (row.input_tokens > 0 || row.output_tokens > 0)
+                {
+                    crate::services::usage_stats::find_model_pricing(&conn, model_id)
+                        .map(|pricing| {
+                            let usage = crate::proxy::usage::TokenUsage {
+                                input_tokens: row.input_tokens as u32,
+                                output_tokens: row.output_tokens as u32,
+                                cache_read_tokens: row.cache_read_tokens as u32,
+                                cache_creation_tokens: row.cache_creation_tokens as u32,
+                                model: Some(row.model.clone()),
+                                message_id: None,
+                            };
+                            crate::proxy::usage::calculator::CostCalculator::calculate_for_app(
+                                &row.app_type,
+                                &usage,
+                                &pricing,
+                                Decimal::ONE,
+                            )
+                            .total_cost
+                            .to_string()
+                        })
+                        .unwrap_or_else(|| row.total_cost_usd.clone())
+                } else {
+                    row.total_cost_usd.clone()
+                };
+
+                PushLogEntry {
+                    request_id: row.request_id.clone(),
+                    app_type: row.app_type.clone(),
+                    provider_id: row.provider_id.clone(),
+                    model: row.model.clone(),
+                    request_model: row.request_model.clone(),
+                    pricing_model: row.pricing_model.clone(),
+                    input_tokens: row.input_tokens,
+                    output_tokens: row.output_tokens,
+                    cache_read_tokens: row.cache_read_tokens,
+                    cache_creation_tokens: row.cache_creation_tokens,
+                    input_cost_usd: row.input_cost_usd.clone(),
+                    output_cost_usd: row.output_cost_usd.clone(),
+                    cache_read_cost_usd: row.cache_read_cost_usd.clone(),
+                    cache_creation_cost_usd: row.cache_creation_cost_usd.clone(),
+                    total_cost_usd: total_cost,
+                    latency_ms: row.latency_ms,
+                    first_token_ms: row.first_token_ms,
+                    duration_ms: row.duration_ms,
+                    status_code: row.status_code,
+                    error_message: row.error_message.clone(),
+                    is_streaming: row.is_streaming,
+                    data_source: row.data_source.clone(),
+                    created_at: row.created_at,
+                }
             })
             .collect();
+        drop(conn);
 
         let body = PushRequestBody {
             logs: push_logs,
