@@ -1466,6 +1466,7 @@ pub fn run() {
             commands::start_lan_broadcast,
             commands::stop_lan_broadcast,
             commands::get_lan_broadcast_status,
+            commands::get_lan_broadcast_info,
         ]);
 
     let app = builder

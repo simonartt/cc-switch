@@ -438,121 +438,21 @@ fn hostname() -> String {
 }
 
 /// 检测本机主局域网 IP 地址
+///
+/// 使用 UDP socket 连接到 8.8.8.8:80，内核自动选择最佳路由对应的源 IP。
+/// 不会实际发送任何网络包，纯本地操作，跨平台可用。
+/// 参考: https://stackoverflow.com/questions/166506/finding-local-ip-addresses
 pub fn detect_local_ip() -> String {
-    // Windows: 解析 ipconfig，兼容中英文系统，隐藏命令窗口
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-        if let Ok(out) = std::process::Command::new("ipconfig")
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-        {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                let trimmed = line.trim();
-                if !trimmed.contains("IPv4") {
-                    continue;
-                }
-                // 提取冒号后的内容，兼容 : 和 ：
-                let after_colon = trimmed
-                    .split(':').nth(1)
-                    .or_else(|| trimmed.split('：').nth(1))
-                    .unwrap_or("")
-                    .trim();
-                // 提取 IP 地址 (xxx.xxx.xxx.xxx)，去掉尾部 (首选)/(Preferred) 等后缀
-                if let Some(raw) = after_colon
-                    .split_whitespace()
-                    .find(|s| s.chars().filter(|&c| c == '.').count() == 3)
-                {
-                    let clean_ip: String = raw
-                        .chars()
-                        .take_while(|c| c.is_ascii_digit() || *c == '.')
-                        .collect();
-                    if let Ok(ip) = clean_ip.parse::<std::net::Ipv4Addr>() {
-                        if !ip.is_loopback() && !ip.is_link_local() {
-                            return ip.to_string();
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback: UDP socket 获取本机 IP
-        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
-            socket.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
-            if socket.connect("192.168.6.255:1").is_ok()
-                || socket.connect("10.255.255.255:1").is_ok()
-            {
-                if let Ok(local) = socket.local_addr() {
-                    let ip = local.ip();
-                    if !ip.is_loopback() {
-                        return ip.to_string();
-                    }
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(local) = socket.local_addr() {
+                let ip = local.ip();
+                if !ip.is_loopback() && ip.is_ipv4() {
+                    return ip.to_string();
                 }
             }
         }
     }
-
-    // macOS: 用 ifconfig 解析
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(out) = std::process::Command::new("ifconfig").args(["-l"]).output() {
-            let ifaces_str = String::from_utf8_lossy(&out.stdout);
-            for iface in ifaces_str.split_whitespace() {
-                if iface == "lo0" || iface == "lo" {
-                    continue;
-                }
-                if let Ok(addr_out) = std::process::Command::new("ifconfig")
-                    .args([iface])
-                    .output()
-                {
-                    let info = String::from_utf8_lossy(&addr_out.stdout);
-                    for line in info.lines() {
-                        let line = line.trim();
-                        if let Some(rest) = line.strip_prefix("inet ") {
-                            if let Some(ip_str) = rest.split_whitespace().next() {
-                                if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
-                                    if !ip.is_loopback() && !ip.is_link_local() {
-                                        return ip.to_string();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Linux: 解析 ip addr
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(out) = std::process::Command::new("ip")
-            .args(["-o", "-4", "addr", "show"])
-            .output()
-        {
-            let info = String::from_utf8_lossy(&out.stdout);
-            for line in info.lines() {
-                // Format: "2: eth0    inet 192.168.1.5/24 brd ..."
-                if let Some(inet_part) = line.split_whitespace()
-                    .skip_while(|&w| w != "inet")
-                    .nth(1)
-                {
-                    if let Some(ip_str) = inet_part.split('/').next() {
-                        if let Ok(ip) = ip_str.parse::<std::net::Ipv4Addr>() {
-                            if !ip.is_loopback() && !ip.is_link_local() {
-                                return ip.to_string();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 最终 fallback
     "127.0.0.1".to_string()
 }
 
