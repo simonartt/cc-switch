@@ -330,7 +330,6 @@ impl LanBroadcast {
             .unwrap_or(6);
 
         let db = &state.db;
-        let conn = db.conn.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let filters = LogFilters {
             app_type: None,
             provider_name: None,
@@ -342,6 +341,9 @@ impl LanBroadcast {
         let paginated = db
             .get_request_logs(&filters, 0, limit as u32)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        // 必须在 get_request_logs 之后锁 conn（std Mutex 不可重入）
+        let conn = db.conn.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let logs: Vec<LogEntry> = paginated
             .data
