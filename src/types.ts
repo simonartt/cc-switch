@@ -420,6 +420,8 @@ export interface Settings {
   usagePushEnabled?: boolean;
   // 使用统计推送目标服务器 URL
   usagePushServerUrl?: string;
+  // 使用统计推送间隔（秒），默认 30
+  usagePushIntervalSecs?: number;
 
   // ===== 本机自动迁移状态 =====
   localMigrations?: {

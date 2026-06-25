@@ -1533,7 +1533,10 @@
       "serverUrl": "Server URL",
       "serverUrlHint": "Include protocol and port, e.g. http://192.168.1.100:3344",
       "saveSuccess": "Push settings saved",
-      "saveError": "Failed to save push settings"
+      "saveError": "Failed to save push settings",
+      "interval": "Push Interval",
+      "seconds": "s",
+      "minutes": "min"
     }
   },
   "usageScript": {

@@ -9,6 +9,7 @@ use crate::services::usage_stats::LogFilters;
 use crate::services::usage_stats::find_model_pricing;
 use crate::proxy::usage::calculator::CostCalculator;
 use crate::proxy::usage::TokenUsage;
+use crate::utils::get_os_device_name;
 use rust_decimal::Decimal;
 use axum::{
     extract::{Query, State as AxumState},
@@ -47,6 +48,9 @@ struct BroadcastAnnounce {
 #[derive(Serialize)]
 struct SummaryResponse {
     summary: SummaryData,
+    // 标识数据来源设备
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_source: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -63,6 +67,9 @@ struct SummaryData {
 #[derive(Serialize)]
 struct LogsResponse {
     logs: Vec<LogEntry>,
+    // 标识数据来源设备
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_source: Option<String>,
 }
 
 /// 匹配远程服务器的日志条目
@@ -79,6 +86,9 @@ struct LogEntry {
 #[derive(Serialize)]
 struct TrendsResponse {
     trends: Vec<TrendEntry>,
+    // 标识数据来源设备
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_source: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -192,11 +202,11 @@ impl LanBroadcast {
                 .set_broadcast(true)
                 .map_err(|e| format!("Failed to set broadcast: {}", e))?;
 
-            let hostname = hostname();
+            let device_name = get_os_device_name();
             let local_ip = detect_local_ip();
             let announce = serde_json::to_string(&BroadcastAnnounce {
                 v: 1,
-                name: hostname,
+                name: device_name,
                 port: HTTP_PORT,
             })
             .unwrap_or_default();
@@ -302,6 +312,8 @@ impl LanBroadcast {
         }
         drop(conn);
 
+        let device_source = Some(get_os_device_name());
+
         Ok(Json(SummaryResponse {
             summary: SummaryData {
                 total_requests: summary.total_requests,
@@ -311,6 +323,7 @@ impl LanBroadcast {
                 total_cache_creation_tokens: summary.total_cache_creation_tokens,
                 total_cost_usd: cost,
             },
+            device_source,
         }))
     }
 
@@ -383,7 +396,12 @@ impl LanBroadcast {
             .collect();
         drop(conn);
 
-        Ok(Json(LogsResponse { logs }))
+        let device_source = Some(get_os_device_name());
+
+        Ok(Json(LogsResponse {
+            logs,
+            device_source,
+        }))
     }
 
     async fn handle_trends(
@@ -412,30 +430,6 @@ impl LanBroadcast {
             .collect();
 
         Ok(Json(TrendsResponse { trends }))
-    }
-}
-
-fn hostname() -> String {
-    // 跨平台主机名获取
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("scutil")
-            .arg("--get")
-            .arg("ComputerName")
-            .output()
-            .ok()
-            .and_then(|o| {
-                String::from_utf8(o.stdout)
-                    .ok()
-                    .map(|s| s.trim().to_string())
-            })
-            .unwrap_or_else(|| "CC-Switch".to_string())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        std::env::var("HOSTNAME")
-            .or_else(|_| std::env::var("COMPUTERNAME"))
-            .unwrap_or_else(|_| "CC-Switch".to_string())
     }
 }
 

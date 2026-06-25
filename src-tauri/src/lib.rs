@@ -36,6 +36,7 @@ mod tray;
 mod usage_events;
 mod usage_push;
 mod usage_script;
+mod utils;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
 pub use codex_config::{get_codex_auth_path, get_codex_config_path, write_codex_live_atomic};

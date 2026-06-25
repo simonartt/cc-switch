@@ -59,18 +59,14 @@ struct PushRequestBody {
 /// 推送状态标记（模块级单例）
 static PUSH_ENABLED: AtomicBool = AtomicBool::new(false);
 
-/// 获取设备名称
+/// 获取设备名称（带 OS 前缀，格式: [MACOS:xxx] 或 [PC:xxx]）
 fn get_device_name() -> String {
-    std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("HOST"))
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string())
+    crate::utils::get_os_device_name()
 }
 
-/// 获取设备 ID（基于设备名+机器特征）
+/// 获取设备 ID（用 hostname 作为设备 ID）
 fn get_device_id() -> String {
-    // 用 hostname 作为设备 ID，用户可在服务器端重命名
-    get_device_name()
+    crate::utils::get_os_device_name()
 }
 
 /// 启动推送服务
@@ -162,17 +158,18 @@ async fn run_push_loop(db: Arc<Database>, device_id: String, device_name: String
     // 先推送所有历史数据，不再跳过已有记录
     log::debug!("[usage-push] 初始化 last_id = {} (从最早记录开始推送)", last_id);
 
-    // 主循环: 每 30 秒检查一次
+    // 主循环: 从设置读取间隔（默认 30 秒）
     loop {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-
-        // 每次迭代重新读取设置，支持热更新 URL
+        // 每次迭代重新读取设置，支持热更新 URL 和间隔
         let settings = crate::settings::get_settings();
         if !settings.usage_push_enabled {
             log::debug!("[usage-push] 推送已禁用，停止循环");
             PUSH_ENABLED.store(false, Ordering::Release);
             break;
         }
+
+        let interval = settings.usage_push_interval_secs.max(5); // 最小 5 秒
+        tokio::time::sleep(Duration::from_secs(interval)).await;
 
         let server_url = match &settings.usage_push_server_url {
             Some(url) if !url.is_empty() => url.trim_end_matches('/').to_string(),

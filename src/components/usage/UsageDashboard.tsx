@@ -85,6 +85,7 @@ export function UsageDashboard() {
   // 使用统计推送设置
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushUrl, setPushUrl] = useState("");
+  const [pushInterval, setPushInterval] = useState(30);
   const [pushLoading, setPushLoading] = useState(false);
   const [pushSaving, setPushSaving] = useState(false);
 
@@ -118,6 +119,7 @@ export function UsageDashboard() {
         if (cancelled) return;
         setPushEnabled(s.usagePushEnabled ?? false);
         setPushUrl(s.usagePushServerUrl ?? "");
+        setPushInterval(s.usagePushIntervalSecs ?? 30);
       })
       .catch((err: Error) => {
         console.error("加载推送设置失败:", err);
@@ -136,6 +138,7 @@ export function UsageDashboard() {
       const settings = await settingsApi.get();
       settings.usagePushEnabled = pushEnabled;
       settings.usagePushServerUrl = pushUrl || undefined;
+      settings.usagePushIntervalSecs = pushInterval;
       await settingsApi.save(settings);
       toast.success(t("usage.push.saveSuccess"));
     } catch (err) {
@@ -475,7 +478,7 @@ export function UsageDashboard() {
                 </div>
 
                 {pushEnabled && (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <label className="text-sm font-medium">
                       {t("usage.push.serverUrl")}
                     </label>
@@ -488,6 +491,23 @@ export function UsageDashboard() {
                     <p className="text-xs text-muted-foreground">
                       {t("usage.push.serverUrlHint")}
                     </p>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <label className="text-sm font-medium">
+                        {t("usage.push.interval")}
+                      </label>
+                      <select
+                        value={pushInterval}
+                        onChange={(e) => setPushInterval(Number(e.target.value))}
+                        className="bg-background border border-input rounded-md px-3 py-1.5 text-sm font-mono"
+                      >
+                        <option value={10}>10 {t("usage.push.seconds")}</option>
+                        <option value={30}>30 {t("usage.push.seconds")}</option>
+                        <option value={60}>60 {t("usage.push.seconds")}</option>
+                        <option value={120}>2 {t("usage.push.minutes")}</option>
+                        <option value={300}>5 {t("usage.push.minutes")}</option>
+                      </select>
+                    </div>
                   </div>
                 )}
 

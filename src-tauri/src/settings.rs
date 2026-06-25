@@ -482,6 +482,9 @@ pub struct AppSettings {
     /// 使用统计推送目标服务器 URL
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_push_server_url: Option<String>,
+    /// 使用统计推送间隔（秒），默认 30
+    #[serde(default = "default_push_interval")]
+    pub usage_push_interval_secs: u64,
 
     // ===== 本机自动迁移状态 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -494,6 +497,10 @@ fn default_show_in_tray() -> bool {
 
 fn default_minimize_to_tray_on_close() -> bool {
     true
+}
+
+fn default_push_interval() -> u64 {
+    30
 }
 
 impl Default for AppSettings {
@@ -542,6 +549,7 @@ impl Default for AppSettings {
             preferred_terminal: None,
             usage_push_enabled: false,
             usage_push_server_url: None,
+            usage_push_interval_secs: default_push_interval(),
             local_migrations: None,
         }
     }

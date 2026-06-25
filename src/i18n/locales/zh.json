@@ -1533,7 +1533,10 @@
       "serverUrl": "服务器地址",
       "serverUrlHint": "请包含协议和端口号，例如 http://192.168.1.100:3344",
       "saveSuccess": "推送设置已保存",
-      "saveError": "保存推送设置失败"
+      "saveError": "保存推送设置失败",
+      "interval": "推送频率",
+      "seconds": "秒",
+      "minutes": "分钟"
     }
   },
   "usageScript": {
